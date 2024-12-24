@@ -5,7 +5,6 @@ use std::process::Command as ProcessCommand;
 use iced::subscription::events_with;
 use iced::Event;
 use std::collections::HashMap;
-use iced::widget::tooltip;
 
 pub fn main() -> iced::Result {
     WtfAreU::run(Settings {
@@ -95,27 +94,19 @@ impl Application for WtfAreU {
                         windows.iter().fold(
                             Column::new().spacing(2),
                             |column, window| {
-                                let window_button = button(
-                                    row![
-                                        text(format!("{} ({})", window.title, window.app_class))
-                                            .width(Length::Fill)
-                                    ]
-                                    .spacing(10)
-                                    .padding(iced::Padding::from([0, 0, 0, 15]))
-                                )
-                                .padding(10)
-                                .style(iced::theme::Button::Custom(Box::new(DarkButton)))
-                                .width(Length::Fill)
-                                .on_press(Message::WindowClicked(window.workspace.clone()));
-
-                                let tooltip_text = format!("{}\nClass: {}", window.title, window.app_class);
                                 column.push(
-                                    tooltip(
-                                        window_button,
-                                        tooltip_text,
-                                        tooltip::Position::Bottom
+                                    button(
+                                        row![
+                                            text(format!("{} ({})", window.title, window.app_class))
+                                                .width(Length::Fill)
+                                        ]
+                                        .spacing(10)
+                                        .padding(iced::Padding::from([0, 0, 0, 15]))
                                     )
-                                    .style(iced::theme::Container::Custom(Box::new(DarkContainer)))
+                                    .padding(10)
+                                    .style(iced::theme::Button::Custom(Box::new(DarkButton)))
+                                    .width(Length::Fill)
+                                    .on_press(Message::WindowClicked(window.workspace.clone()))
                                 )
                             }
                         )
