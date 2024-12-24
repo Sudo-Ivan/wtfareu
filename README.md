@@ -10,6 +10,19 @@ Uses hyprctl to get the workspace and window information.
 - Small codebase
 - Simple to use
 
-**Ideas:**
+## Dependencies
 
-- Workspace Image Previews (if overhead not too much)
+- Iced = 0.10.0
+- Serde_json = 1.0
+
+## Requirements
+
+- Hyprland
+- Hyprctl
+- Rust 
+
+## Building
+
+```bash
+cargo build --release
+```
