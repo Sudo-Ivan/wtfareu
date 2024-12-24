@@ -5,6 +5,9 @@ use std::process::Command as ProcessCommand;
 use iced::subscription::events_with;
 use iced::Event;
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+const CACHE_DURATION: Duration = Duration::from_millis(100);
 
 pub fn main() -> iced::Result {
     WtfAreU::run(Settings {
@@ -12,6 +15,7 @@ pub fn main() -> iced::Result {
             size: (420, 600),
             ..Default::default()
         },
+        antialiasing: false,
         ..Default::default()
     })
 }
@@ -24,6 +28,8 @@ enum Message {
 
 struct WtfAreU {
     windows: Vec<WindowInfo>,
+    last_update: Instant,
+    cached_windows: Option<Vec<WindowInfo>>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,7 +48,9 @@ impl Application for WtfAreU {
     fn new(_flags: ()) -> (Self, Command<Message>) {
         (
             WtfAreU { 
-                windows: Vec::new() 
+                windows: Vec::new(),
+                last_update: Instant::now(),
+                cached_windows: None,
             },
             Command::none(),
         )
@@ -58,24 +66,37 @@ impl Application for WtfAreU {
                 let _ = ProcessCommand::new("hyprctl")
                     .args(["dispatch", "workspace", &workspace])
                     .output();
+                self.cached_windows = None; // Invalidate cache on workspace change
                 Command::none()
             }
             Message::Refresh => {
-                self.windows = self.get_hyprland_clients();
+                // Only refresh if cache is invalid
+                if self.cached_windows.is_none() || self.last_update.elapsed() > CACHE_DURATION {
+                    self.windows = self.get_hyprland_clients();
+                    self.last_update = Instant::now();
+                    self.cached_windows = Some(self.windows.clone());
+                }
                 Command::none()
             }
         }
     }
 
     fn view(&self) -> Element<Message> {
-        let windows = self.get_hyprland_clients();
-        let grouped = self.group_windows(&windows);
+        let windows = if let Some(cached) = &self.cached_windows {
+            cached
+        } else {
+            &self.windows
+        };
         
-        // Convert workspace numbers to integers for sorting
-        let mut workspace_nums: Vec<_> = grouped.keys()
-            .filter_map(|w| w.parse::<i32>().ok())
-            .collect();
-        workspace_nums.sort();
+        let grouped = self.group_windows(windows);
+        
+        // Preallocate vector capacity
+        let mut workspace_nums = Vec::with_capacity(grouped.len());
+        workspace_nums.extend(
+            grouped.keys()
+                .filter_map(|w| w.parse::<i32>().ok())
+        );
+        workspace_nums.sort_unstable(); // Use sort_unstable for better performance
 
         let workspace_columns = workspace_nums.iter()
             .map(|num| {
@@ -97,7 +118,7 @@ impl Application for WtfAreU {
                                 column.push(
                                     button(
                                         row![
-                                            text(format!("{} ({})", window.title, window.app_class))
+                                            text(&format!("{} ({})", window.title, window.app_class))
                                                 .width(Length::Fill)
                                         ]
                                         .spacing(10)
@@ -145,19 +166,21 @@ impl WtfAreU {
             Ok(output) => {
                 if let Ok(json) = serde_json::from_slice::<Value>(&output.stdout) {
                     if let Some(windows) = json.as_array() {
-                        return windows
-                            .iter()
-                            .filter_map(|window| {
-                                Some(WindowInfo {
-                                    title: window.get("title")?.as_str()?.to_string(),
-                                    workspace: window.get("workspace")?
-                                        .get("name")?
-                                        .as_str()?
-                                        .to_string(),
-                                    app_class: window.get("class")?.as_str()?.to_string(),
-                                })
-                            })
-                            .collect();
+                        let mut result = Vec::with_capacity(windows.len());
+                        for window in windows {
+                            if let (Some(title), Some(workspace), Some(app_class)) = (
+                                window.get("title").and_then(|v| v.as_str()),
+                                window.get("workspace").and_then(|v| v.get("name")).and_then(|v| v.as_str()),
+                                window.get("class").and_then(|v| v.as_str()),
+                            ) {
+                                result.push(WindowInfo {
+                                    title: title.to_string(),
+                                    workspace: workspace.to_string(),
+                                    app_class: app_class.to_string(),
+                                });
+                            }
+                        }
+                        return result;
                     }
                 }
             }
@@ -167,10 +190,10 @@ impl WtfAreU {
     }
 
     fn group_windows<'a>(&self, windows: &'a [WindowInfo]) -> HashMap<String, Vec<&'a WindowInfo>> {
-        let mut groups: HashMap<String, Vec<&'a WindowInfo>> = HashMap::new();
+        let mut groups = HashMap::with_capacity(10); // Preallocate with reasonable capacity
         for window in windows {
             groups.entry(window.workspace.clone())
-                .or_default()
+                .or_insert_with(|| Vec::with_capacity(5))
                 .push(window);
         }
         groups
